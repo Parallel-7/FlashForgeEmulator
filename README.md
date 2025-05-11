@@ -92,7 +92,3 @@ The emulator supports all primary FlashForge TCP API commands:
 - `M109/M190` - Set and wait for extruder/bed temperature
 - `M661` - List files on printer
 - `M662` - Get thumbnail for a file
-  CMD GCODE Received.
-  [response data]
-  ok
-  ```
