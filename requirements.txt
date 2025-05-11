@@ -1,0 +1,4 @@
+# FlashForge Printer Emulator Dependencies
+
+# Image processing (for thumbnail generation)
+Pillow>=9.0.0
