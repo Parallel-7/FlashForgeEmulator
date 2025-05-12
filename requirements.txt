@@ -2,3 +2,6 @@
 
 # Image processing (for thumbnail generation)
 Pillow>=9.0.0
+
+# UI with themes
+ttkbootstrap>=1.10.0

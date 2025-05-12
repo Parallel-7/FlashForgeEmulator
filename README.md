@@ -1,25 +1,8 @@
-# FlashForgeEmulator
+# FlashForge Printer Emulator
 
 [![Python Version](https://img.shields.io/badge/python-3.6%2B-blue.svg)](https://www.python.org/downloads/)
 
-A simple API emulator for FlashForge 3D printers. This allows for easy and rapid testing of client applications.
-
-## Showcase
-- Respond to network discovery
-![image](https://github.com/user-attachments/assets/728fffb6-3853-461e-8e41-aa7bda117336)
-- Respond to all g-code commands
-![image](https://github.com/user-attachments/assets/e1b6ac4d-f75b-4d49-b9cb-1ca889b34d6f)
-- Simulate full print lifecycle
-- Respond to ~M662 with sample preview
-![image](https://github.com/user-attachments/assets/ce2f7b12-406e-4e2c-a58b-f1be831eec82)
-
-- Set and simulate hotend or extruder temperature
-- Set and simulate idle temperatures
-![image](https://github.com/user-attachments/assets/15256bfa-14a5-40a6-9b94-52270d3fa466)
-
-- Respond to ~M661 with emulated file list
-![image](https://github.com/user-attachments/assets/81caca65-90bf-4921-9b92-8dd8584b51f1)
-
+A comprehensive network protocol emulator for FlashForge 3D printers. This tool allows developers to test FlashForge client applications without requiring a physical printer.
 
 ## Features
 
@@ -109,3 +92,23 @@ The emulator supports all primary FlashForge TCP API commands:
 - `M109/M190` - Set and wait for extruder/bed temperature
 - `M661` - List files on printer
 - `M662` - Get thumbnail for a file
+
+## Protocol Details
+
+### Discovery Protocol
+
+The emulator implements the FlashForge discovery protocol:
+- UDP port 48899
+- Responds to standard FlashForge discovery packet format
+- Returns printer name and serial number in the correct binary format
+
+### Command Protocol
+
+- TCP port 8899
+- Command format: `~GCODE [parameters]`
+- Response format:
+  ```
+  CMD GCODE Received.
+  [response data]
+  ok
+  ```
