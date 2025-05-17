@@ -5,6 +5,7 @@ import socket
 import threading
 import binascii
 import time
+import random
 from .commands import process_command
 import config
 
@@ -26,11 +27,16 @@ class EmulatorServer:
     def start(self):
         """Start the discovery and TCP command servers"""
         try:
-            # Start discovery server (UDP)
-            self.discovery_server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.discovery_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self.discovery_server.bind(('0.0.0.0', config.DISCOVERY_PORT))
-            threading.Thread(target=self.handle_discovery, daemon=True).start()
+            # Start discovery server (UDP) if enabled
+            if self.config.get('discovery_enabled', True):
+                self.discovery_server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                self.discovery_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                self.discovery_server.bind(('0.0.0.0', config.DISCOVERY_PORT))
+                threading.Thread(target=self.handle_discovery, daemon=True).start()
+    
+            else:
+                self.discovery_server = None
+                self.log("Discovery service disabled")
             
             # Start TCP command server
             self.tcp_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -40,8 +46,12 @@ class EmulatorServer:
             threading.Thread(target=self.handle_tcp_connections, daemon=True).start()
             
             self.is_running = True
-            self.log(f"Emulator services started on {self.config['ip_address']}")
-            self.log(f"Discovery service running on UDP port {config.DISCOVERY_PORT}")
+            discovery_status = "with discovery service" if self.config.get('discovery_enabled', True) else "without discovery service"
+            self.log(f"Emulator services started on {self.config['ip_address']} {discovery_status}")
+            # Only log the discovery port if it's enabled
+            if self.config.get('discovery_enabled', True):
+                self.log(f"Discovery service running on UDP port {config.DISCOVERY_PORT}")
+            
             self.log(f"TCP API service running on port {config.COMMAND_PORT}")
             
             return True
@@ -53,10 +63,11 @@ class EmulatorServer:
     def stop(self):
         """Stop all server threads"""
         try:
-            # Stop discovery server
+            # Stop discovery server if it's running
             if self.discovery_server:
                 self.discovery_server.close()
                 self.discovery_server = None
+                self.log("Discovery service stopped")
             
             # Close all client connections
             for client in self.tcp_clients:
@@ -112,7 +123,7 @@ class EmulatorServer:
                     
                     # If we're responding with an IP different from our configured one, skip it
                     if local_ip and local_ip != emulator_ip:
-                        self.log(f"Skipping response from {local_ip} (not our primary emulator IP {emulator_ip})")
+                        # Skip without logging
                         continue
                     
                     # Create the discovery response packet
@@ -128,7 +139,8 @@ class EmulatorServer:
                     
                     # Send the response back
                     self.discovery_server.sendto(response, addr)
-                    self.log(f"Sent discovery response to {addr[0]}:{addr[1]} from {emulator_ip}")
+                    # Only log this message in debug mode or when explicitly asked for detail
+                    # self.log(f"Sent discovery response to {addr[0]}:{addr[1]} from {emulator_ip}")
                     
                 except socket.timeout:
                     continue
@@ -187,11 +199,49 @@ class EmulatorServer:
                 response = process_command(command, self.config, self.thumbnail_path, 
                                          self.virtual_files, self.log)
                 
-                # Log the command and response type (for debugging)
-                #if command == "~M115" or command == "~M119":
-                #    self.log(f"Command {command} - generating status response")
+                # Get network simulation settings
+                network_sim = self.config.get('network_simulation', {})
+                latency_enabled = network_sim.get('latency_enabled', False)
+                latency = network_sim.get('latency', 0)
+                failures_enabled = network_sim.get('failures_enabled', False)
+                failure_rate = network_sim.get('failure_rate', 0)
+                failure_type = network_sim.get('failure_type', 'drop')
                 
-                # Send response
+                # Determine if we should simulate a failure
+                should_fail = failures_enabled and random.randint(1, 100) <= failure_rate
+                
+                # Apply simulated latency if enabled
+                if latency_enabled and latency > 0:
+                    self.log(f"Simulating network latency: {latency} ms")
+                    time.sleep(latency / 1000.0)  # Convert ms to seconds
+                
+                # Handle connection failures if enabled and triggered
+                if should_fail:
+                    self.log(f"Simulating network failure: {failure_type}")
+                    
+                    if failure_type == 'drop':
+                        # Silently close the connection
+                        break
+                    
+                    elif failure_type == 'timeout':
+                        # Send part of the response and then hang
+                        if isinstance(response, str):
+                            partial_response = response[:len(response)//3]
+                            client_socket.sendall(partial_response.encode('ascii'))
+                        elif isinstance(response, bytes):
+                            partial_response = response[:len(response)//3]
+                            client_socket.sendall(partial_response)
+                        # Now simulate hanging by sleeping for a while
+                        time.sleep(10)  # Sleep for 10 seconds
+                        break
+                    
+                    elif failure_type == 'error':
+                        # Send an error response instead
+                        error_msg = "CMD ERROR Received.\nError: Simulated failure\nok\n"
+                        client_socket.sendall(error_msg.encode('ascii'))
+                        continue
+                
+                # If no failure or delay, send the normal response
                 if isinstance(response, str):
                     client_socket.sendall(response.encode('ascii'))
                 elif isinstance(response, bytes):

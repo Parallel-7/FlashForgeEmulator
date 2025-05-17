@@ -8,14 +8,21 @@ def get_printer_info_response(config):
     """Generate printer info response (M115)"""
     firmware = config['firmware_version']
     machine_type = config['machine_type']
+    
+    # Get dimensions from config or use defaults
+    x_dimension = config.get('x_dimension', 200)
+    y_dimension = config.get('y_dimension', 200)
+    z_dimension = config.get('z_dimension', 200)
+    tool_count = config.get('tool_count', 1)
+    
     response = (
         f"CMD M115 Received.\n"
         f"Machine Type: {machine_type}\n"
         f"Machine Name: {config['printer_name']}\n"
         f"Firmware: {firmware}\n"
         f"SN: {config['serial_number']}\n"
-        f"X: 200 Y: 200 Z: 200\n"
-        f"Tool Count: 1\n"
+        f"X: {x_dimension} Y: {y_dimension} Z: {z_dimension}\n"
+        f"Tool Count: {tool_count}\n"
         f"ok\n"
     )
     return response

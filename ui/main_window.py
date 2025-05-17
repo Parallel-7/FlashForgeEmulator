@@ -1,10 +1,16 @@
+"""
+Main window UI for FlashForge Emulator
+"""
 import tkinter as tk
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 import config
 
-from .logs_tab import LogsTab
-from .config_tab import ConfigTab
+from .main_tab import MainTab
+from .printer_details_tab import PrinterDetailsTab
+from .printer_state_tab import PrinterStateTab
+from .filesystem_tab import FilesystemTab
+from .network_tab import NetworkTab
 
 class MainWindow:
     """Main UI Window"""
@@ -18,8 +24,11 @@ class MainWindow:
         self.root.geometry(f"{config.UI_WINDOW_WIDTH}x{config.UI_WINDOW_HEIGHT}")
         
         # Set up the UI
-        self.logs_tab = None
-        self.config_tab = None
+        self.main_tab = None
+        self.printer_details_tab = None
+        self.printer_state_tab = None
+        self.filesystem_tab = None
+        self.network_tab = None
         self.setup_ui()
         
         # Setup periodic updates
@@ -35,23 +44,32 @@ class MainWindow:
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
         
         # Create tab frames
-        config_tab_frame = ttk.Frame(self.notebook)
-        logs_tab_frame = ttk.Frame(self.notebook)
+        main_tab_frame = ttk.Frame(self.notebook)
+        printer_details_tab_frame = ttk.Frame(self.notebook)
+        printer_state_tab_frame = ttk.Frame(self.notebook)
+        filesystem_tab_frame = ttk.Frame(self.notebook)
+        network_tab_frame = ttk.Frame(self.notebook)
         
-        self.notebook.add(config_tab_frame, text="Configuration")
-        self.notebook.add(logs_tab_frame, text="Logs")
+        self.notebook.add(main_tab_frame, text="Main")
+        self.notebook.add(printer_details_tab_frame, text="Printer Details")
+        self.notebook.add(printer_state_tab_frame, text="Printer State")
+        self.notebook.add(filesystem_tab_frame, text="Filesystem")
+        self.notebook.add(network_tab_frame, text="Network")
         
         # Initialize tabs
-        self.config_tab = ConfigTab(config_tab_frame, self.emulator, self.log)
-        self.logs_tab = LogsTab(logs_tab_frame)
+        self.main_tab = MainTab(main_tab_frame, self.emulator, self.log)
+        self.printer_details_tab = PrinterDetailsTab(printer_details_tab_frame, self.emulator, self.log)
+        self.printer_state_tab = PrinterStateTab(printer_state_tab_frame, self.emulator, self.log)
+        self.filesystem_tab = FilesystemTab(filesystem_tab_frame, self.emulator, self.log)
+        self.network_tab = NetworkTab(network_tab_frame, self.emulator, self.log)
         
         # Set up window close handler
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
     
     def log(self, message):
-        """Log a message to the logs tab"""
-        if self.logs_tab:
-            self.logs_tab.log(message)
+        """Log a message to the main tab"""
+        if self.main_tab:
+            return self.main_tab.log(message)
         return message
     
     def update_ui(self):
@@ -63,9 +81,21 @@ class MainWindow:
         if self.emulator.update_progress():
             pass  # Progress was updated
         
-        # Update UI
-        if self.config_tab:
-            self.config_tab.update_ui()
+        # Update UI in each tab
+        if self.main_tab:
+            self.main_tab.update_ui()
+        
+        if self.printer_details_tab:
+            self.printer_details_tab.update_ui()
+        
+        if self.printer_state_tab:
+            self.printer_state_tab.update_ui()
+        
+        if self.filesystem_tab:
+            self.filesystem_tab.update_ui()
+        
+        if self.network_tab:
+            self.network_tab.update_ui()
         
         # Schedule next update
         self.root.after(1000, self.update_ui)

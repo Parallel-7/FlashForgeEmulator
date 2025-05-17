@@ -16,7 +16,7 @@ def process_command(command, config, thumbnail_path, virtual_files, logger=None)
     """Process a command and return the appropriate response"""
     # Handle login/logout
     if command == "~M601 S1":  # Login
-        return "CMD M601 Received.\nControl Success.\nok\n"
+        return "CMD M601 Received.\nControl Success v2.1.\nok\n"
     
     if command == "~M602":  # Logout
         return "CMD M602 Received.\nControl Release.\nok\n"
@@ -39,19 +39,35 @@ def process_command(command, config, thumbnail_path, virtual_files, logger=None)
     
     # LED control
     if command.startswith("~M146"):  # LED control
-        if "r255 g255 b255" in command:
-            config['led_state'] = True
-        elif "r0 g0 b0" in command:
-            config['led_state'] = False
+        led_state_changed = False
+        if "r255 g255 b255" in command.lower():
+            if not config['led_state']:
+                config['led_state'] = True
+                led_state_changed = True
+                if logger:
+                    logger("LED turned ON")
+        elif "r0 g0 b0" in command.lower():
+            if config['led_state']:
+                config['led_state'] = False
+                led_state_changed = True
+                if logger:
+                    logger("LED turned OFF")
+                    
         return "CMD M146 Received.\nok\n"
     
     # Filament runout sensor
     if command == "~M405":  # Runout sensor on
+        old_state = config['filament_runout_sensor']
         config['filament_runout_sensor'] = True
+        if not old_state and logger:
+            logger("Filament sensor enabled")
         return "CMD M405 Received.\nok\n"
     
     if command == "~M406":  # Runout sensor off
+        old_state = config['filament_runout_sensor']
         config['filament_runout_sensor'] = False
+        if old_state and logger:
+            logger("Filament sensor disabled")
         return "CMD M406 Received.\nok\n"
     
     # Home axes
@@ -64,17 +80,23 @@ def process_command(command, config, thumbnail_path, virtual_files, logger=None)
     if command == "~M24":  # Resume print
         if config['print_status'] == 'paused':
             config['print_status'] = 'printing'
+            if logger:
+                logger("Print resumed")
         return "CMD M24 Received.\nok\n"
     
     if command == "~M25":  # Pause print
         if config['print_status'] == 'printing':
             config['print_status'] = 'paused'
+            if logger:
+                logger("Print paused")
         return "CMD M25 Received.\nok\n"
     
     if command == "~M26":  # Stop print
         if config['print_status'] in ['printing', 'paused']:
             config['print_status'] = 'idle'
             config['print_progress'] = 0
+            if logger:
+                logger("Print stopped")
         return "CMD M26 Received.\nok\n"
     
     # Temperature settings
@@ -84,6 +106,8 @@ def process_command(command, config, thumbnail_path, virtual_files, logger=None)
             try:
                 temp = float(parts[1][1:])
                 config['target_hotend'] = temp
+                if logger:
+                    logger(f"Hotend target temperature set to {temp}°C")
             except ValueError:
                 pass
         return "CMD M104 Received.\nok\n"
@@ -94,6 +118,8 @@ def process_command(command, config, thumbnail_path, virtual_files, logger=None)
             try:
                 temp = float(parts[1][1:])
                 config['target_bed'] = temp
+                if logger:
+                    logger(f"Bed target temperature set to {temp}°C")
             except ValueError:
                 pass
         return "CMD M140 Received.\nok\n"
@@ -105,6 +131,8 @@ def process_command(command, config, thumbnail_path, virtual_files, logger=None)
                 temp = float(parts[1][1:])
                 config['target_hotend'] = temp
                 config['hotend_temp'] = temp  # Immediately set temp for testing
+                if logger:
+                    logger(f"Hotend temperature set to {temp}°C (wait)")
             except ValueError:
                 pass
         return "CMD M109 Received.\nok\n"
@@ -116,6 +144,8 @@ def process_command(command, config, thumbnail_path, virtual_files, logger=None)
                 temp = float(parts[1][1:])
                 config['target_bed'] = temp
                 config['bed_temp'] = temp  # Immediately set temp for testing
+                if logger:
+                    logger(f"Bed temperature set to {temp}°C (wait)")
             except ValueError:
                 pass
         return "CMD M190 Received.\nok\n"

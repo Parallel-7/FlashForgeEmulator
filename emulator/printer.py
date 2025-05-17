@@ -41,7 +41,12 @@ class PrinterEmulator:
             "print_status": "idle",  # idle, printing, paused, completed, failed
             "print_progress": 0,     # 0-100
             "filament_runout_sensor": True,
-            "current_file": "sample_model.3mf"  # Currently printing file name
+            "current_file": "sample_model.3mf",  # Currently printing file name
+            "x_dimension": 200,  # Printer dimensions in mm
+            "y_dimension": 200,
+            "z_dimension": 200,
+            "tool_count": 1,      # Number of print heads
+            "discovery_enabled": True  # Enable/disable the discovery service
         }
         
         # Initialize server
