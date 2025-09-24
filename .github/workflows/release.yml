@@ -40,14 +40,22 @@ jobs:
       shell: bash
       run: |
         if [ "${{ runner.os }}" == "Windows" ]; then
-          zip -j dist/flashforge-emulator-windows.zip dist/flashforge-emulator.exe
+          echo "Windows executable does not need packaging."
         elif [ "${{ runner.os }}" == "macOS" ]; then
           zip -j dist/flashforge-emulator-macos.zip dist/flashforge-emulator
         else
           zip -j dist/flashforge-emulator-linux.zip dist/flashforge-emulator
         fi
 
-    - name: Upload artifact
+    - name: Upload Windows Artifact
+      if: runner.os == 'Windows'
+      uses: actions/upload-artifact@v4
+      with:
+        name: executables-${{ runner.os }}
+        path: dist/flashforge-emulator.exe
+
+    - name: Upload Linux/macOS Artifact
+      if: runner.os != 'Windows'
       uses: actions/upload-artifact@v4
       with:
         name: executables-${{ runner.os }}
