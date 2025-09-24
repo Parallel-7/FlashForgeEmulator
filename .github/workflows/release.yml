@@ -36,23 +36,22 @@ jobs:
     - name: Build executable
       run: pyinstaller --noconfirm --onefile --windowed --name "flashforge-emulator" main.py
 
-    - name: Rename executable (Linux)
-      if: runner.os == 'Linux'
-      run: mv dist/flashforge-emulator dist/flashforge-emulator-linux
-
-    - name: Rename executable (macOS)
-      if: runner.os == 'macOS'
-      run: mv dist/flashforge-emulator dist/flashforge-emulator-macos
-
-    - name: Rename executable (Windows)
-      if: runner.os == 'Windows'
-      run: mv dist/flashforge-emulator.exe dist/flashforge-emulator-windows.exe
+    - name: Package executable
+      shell: bash
+      run: |
+        if [ "${{ runner.os }}" == "Windows" ]; then
+          zip -j dist/flashforge-emulator-windows.zip dist/flashforge-emulator.exe
+        elif [ "${{ runner.os }}" == "macOS" ]; then
+          zip -j dist/flashforge-emulator-macos.zip dist/flashforge-emulator
+        else
+          zip -j dist/flashforge-emulator-linux.zip dist/flashforge-emulator
+        fi
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: executables-${{ runner.os }}
-        path: dist/*
+        path: dist/*.zip
 
   release:
     needs: build
