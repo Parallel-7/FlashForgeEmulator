@@ -5,3 +5,9 @@ Pillow>=9.0.0
 
 # UI with themes
 ttkbootstrap>=1.10.0
+
+# HTTP client for testing API endpoints
+requests>=2.28.0
+
+# Async HTTP server (fast startup, matches real API)
+aiohttp>=3.9.0

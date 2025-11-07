@@ -41,41 +41,43 @@ class ConfigTab:
         name_frame.pack(fill=tk.X, pady=2)
         ttk.Label(name_frame, text="Printer Name:").pack(side=tk.LEFT, padx=(0, 5))
         self.printer_name_var = tk.StringVar(value=self.emulator.config["printer_name"])
-        self.printer_name_var.trace_add("write", lambda *args: self.update_config_field("printer_name", self.printer_name_var.get()))
         ttk.Entry(name_frame, textvariable=self.printer_name_var, width=25).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        
+
         # Machine Type
         machine_frame = ttk.Frame(left_frame)
         machine_frame.pack(fill=tk.X, pady=2)
         ttk.Label(machine_frame, text="Machine Type:").pack(side=tk.LEFT, padx=(0, 5))
         self.machine_type_var = tk.StringVar(value=self.emulator.config["machine_type"])
-        self.machine_type_var.trace_add("write", lambda *args: self.update_config_field("machine_type", self.machine_type_var.get()))
         ttk.Entry(machine_frame, textvariable=self.machine_type_var, width=25).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        
+
         # Right column
         right_frame = ttk.Frame(config_grid)
         right_frame.grid(row=0, column=1, sticky="nsew", padx=5)
-        
+
         # Serial Number
         serial_frame = ttk.Frame(right_frame)
         serial_frame.pack(fill=tk.X, pady=2)
         ttk.Label(serial_frame, text="Serial Number:").pack(side=tk.LEFT, padx=(0, 5))
         self.serial_number_var = tk.StringVar(value=self.emulator.config["serial_number"])
-        self.serial_number_var.trace_add("write", lambda *args: self.update_config_field("serial_number", self.serial_number_var.get()))
         ttk.Entry(serial_frame, textvariable=self.serial_number_var, width=25).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        
+
         # Firmware Version
         firmware_frame = ttk.Frame(right_frame)
         firmware_frame.pack(fill=tk.X, pady=2)
         ttk.Label(firmware_frame, text="Firmware Version:").pack(side=tk.LEFT, padx=(0, 5))
         self.firmware_version_var = tk.StringVar(value=self.emulator.config["firmware_version"])
-        self.firmware_version_var.trace_add("write", lambda *args: self.update_config_field("firmware_version", self.firmware_version_var.get()))
         ttk.Entry(firmware_frame, textvariable=self.firmware_version_var, width=25).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        
+
+        # Apply button for basic config fields
+        apply_button_frame = ttk.Frame(config_grid)
+        apply_button_frame.grid(row=1, column=0, columnspan=2, pady=(10, 5))
+        ttk.Button(apply_button_frame, text="Apply Basic Config", style="primary.TButton",
+                   command=self.apply_basic_config).pack()
+
         # Configure grid to expand columns evenly
         config_grid.columnconfigure(0, weight=1)
         config_grid.columnconfigure(1, weight=1)
-        
+
         # Network interface at the bottom
         network_frame = ttk.Frame(config_frame)
         network_frame.pack(fill=tk.X, pady=5)
@@ -306,6 +308,26 @@ class ConfigTab:
             self.start_button.config(state=tk.NORMAL)
             self.stop_button.config(state=tk.DISABLED)
     
+    def apply_basic_config(self):
+        """Apply basic configuration fields (called by Apply button)"""
+        self.emulator.config['printer_name'] = self.printer_name_var.get()
+        self.emulator.config['serial_number'] = self.serial_number_var.get()
+        self.emulator.config['machine_type'] = self.machine_type_var.get()
+        self.emulator.config['firmware_version'] = self.firmware_version_var.get()
+
+        # Auto-save configuration
+        try:
+            self.emulator.save_config_to_json()
+            if self.on_update_callback:
+                self.on_update_callback("Basic configuration updated and saved")
+        except Exception as e:
+            if self.on_update_callback:
+                self.on_update_callback(f"Error saving configuration: {e}")
+
+        # Restart server if running to apply changes
+        if self.emulator.server.is_running:
+            self.schedule_server_restart()
+
     def update_config_from_ui(self):
         """Update emulator configuration from UI elements"""
         self.emulator.config['printer_name'] = self.printer_name_var.get()
@@ -318,14 +340,14 @@ class ConfigTab:
         self.emulator.config['led_state'] = self.led_var.get()
         self.emulator.config['filament_runout_sensor'] = self.filament_sensor_var.get()
         self.emulator.config['current_file'] = self.current_file_var.get()
-        
+
         # Update progress label
         self.progress_label.config(text=f"{self.emulator.config['print_progress']}%")
-        
+
         # Call the update callback if provided
         if self.on_update_callback:
             self.on_update_callback("Configuration updated from UI")
-        
+
         # Update emulator server if IP address changed
         if self.emulator.server.is_running:
             self.schedule_server_restart()
@@ -348,8 +370,8 @@ class ConfigTab:
     def update_idle_temps(self):
         """Update idle temperature settings from UI"""
         if self.emulator.update_idle_temps(self.idle_hotend_var.get(), self.idle_bed_var.get()):
-            # Success - no additional action needed
-            pass
+            # Auto-save configuration
+            self.emulator.save_config_to_json()
         else:
             messagebox.showerror("Invalid Input", "Please enter valid numbers for idle temperatures.")
     
@@ -403,25 +425,30 @@ class ConfigTab:
         if file_path:
             if self.emulator.set_thumbnail(file_path):
                 self.thumbnail_path_var.set(os.path.basename(file_path))
+                # Auto-save configuration
+                self.emulator.save_config_to_json()
                 if self.on_update_callback:
                     self.on_update_callback(f"Thumbnail file set to: {file_path}")
     
     def add_virtual_file(self):
         """Add a new file to the virtual files list"""
         new_file = self.new_file_var.get().strip()
-        
+
         # Validate file name
         if not new_file:
             messagebox.showwarning("Invalid File", "Please enter a file name")
             return
-        
+
         if self.emulator.add_virtual_file(new_file):
             # Add to UI
             self.files_listbox.insert(tk.END, new_file)
-            
+
             # Clear the entry field
             self.new_file_var.set("")
-            
+
+            # Auto-save configuration
+            self.emulator.save_config_to_json()
+
             if self.on_update_callback:
                 self.on_update_callback(f"Added virtual file: {new_file}")
         else:
@@ -431,19 +458,22 @@ class ConfigTab:
         """Delete the selected file from the virtual files list"""
         # Get selected index
         selected_idx = self.files_listbox.curselection()
-        
+
         if not selected_idx:
             messagebox.showwarning("No Selection", "Please select a file to delete.")
             return
-        
+
         # Get file name from the selected index
         idx = selected_idx[0]
         filename = self.files_listbox.get(idx)
-        
+
         if self.emulator.delete_virtual_file(filename):
             # Remove from UI
             self.files_listbox.delete(idx)
-            
+
+            # Auto-save configuration
+            self.emulator.save_config_to_json()
+
             if self.on_update_callback:
                 self.on_update_callback(f"Deleted virtual file: {filename}")
     

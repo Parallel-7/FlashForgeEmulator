@@ -32,25 +32,21 @@ class PrinterDetailsTab:
         # Row 0: Printer Name
         ttk.Label(config_grid, text="Printer Name:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
         self.printer_name_var = tk.StringVar(value=self.emulator.config["printer_name"])
-        self.printer_name_var.trace_add("write", lambda *args: self.update_config_field("printer_name", self.printer_name_var.get()))
         ttk.Entry(config_grid, textvariable=self.printer_name_var, width=30).grid(row=0, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
-        
+
         # Row 1: Machine Type
         ttk.Label(config_grid, text="Machine Type:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
         self.machine_type_var = tk.StringVar(value=self.emulator.config["machine_type"])
-        self.machine_type_var.trace_add("write", lambda *args: self.update_config_field("machine_type", self.machine_type_var.get()))
         ttk.Entry(config_grid, textvariable=self.machine_type_var, width=30).grid(row=1, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
-        
+
         # Row 2: Serial Number
         ttk.Label(config_grid, text="Serial Number:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
         self.serial_number_var = tk.StringVar(value=self.emulator.config["serial_number"])
-        self.serial_number_var.trace_add("write", lambda *args: self.update_config_field("serial_number", self.serial_number_var.get()))
         ttk.Entry(config_grid, textvariable=self.serial_number_var, width=30).grid(row=2, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
-        
+
         # Row 3: Firmware Version
         ttk.Label(config_grid, text="Firmware Version:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
         self.firmware_version_var = tk.StringVar(value=self.emulator.config["firmware_version"])
-        self.firmware_version_var.trace_add("write", lambda *args: self.update_config_field("firmware_version", self.firmware_version_var.get()))
         ttk.Entry(config_grid, textvariable=self.firmware_version_var, width=30).grid(row=3, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
         
         # Row 4: Printer Dimensions section header
@@ -62,22 +58,22 @@ class PrinterDetailsTab:
         
         # Add X dimension
         ttk.Label(dimensions_frame, text="X:").pack(side=tk.LEFT, padx=(0, 5))
-        self.x_dimension_var = tk.StringVar(value="200")
+        self.x_dimension_var = tk.StringVar(value=str(self.emulator.config.get("x_dimension", 200)))
         ttk.Entry(dimensions_frame, textvariable=self.x_dimension_var, width=5).pack(side=tk.LEFT, padx=(0, 10))
-        
+
         # Add Y dimension
         ttk.Label(dimensions_frame, text="Y:").pack(side=tk.LEFT, padx=(10, 5))
-        self.y_dimension_var = tk.StringVar(value="200")
+        self.y_dimension_var = tk.StringVar(value=str(self.emulator.config.get("y_dimension", 200)))
         ttk.Entry(dimensions_frame, textvariable=self.y_dimension_var, width=5).pack(side=tk.LEFT, padx=(0, 10))
-        
+
         # Add Z dimension
         ttk.Label(dimensions_frame, text="Z:").pack(side=tk.LEFT, padx=(10, 5))
-        self.z_dimension_var = tk.StringVar(value="200")
+        self.z_dimension_var = tk.StringVar(value=str(self.emulator.config.get("z_dimension", 200)))
         ttk.Entry(dimensions_frame, textvariable=self.z_dimension_var, width=5).pack(side=tk.LEFT)
         
         # Row 6: Tool Count
         ttk.Label(config_grid, text="Tool Count:").grid(row=6, column=0, sticky=tk.W, padx=5, pady=5)
-        self.tool_count_var = tk.StringVar(value="1")
+        self.tool_count_var = tk.StringVar(value=str(self.emulator.config.get("tool_count", 1)))
         ttk.Spinbox(config_grid, textvariable=self.tool_count_var, from_=1, to=4, width=5).grid(row=6, column=1, sticky=tk.W, padx=5, pady=5)
         
         # Apply button at the bottom
@@ -106,32 +102,35 @@ class PrinterDetailsTab:
     
     def apply_changes(self):
         """Apply all changes to the emulator configuration"""
-        # Update dimensions and tool count in the printer info response
+        # Update all text fields
         try:
-            x = int(self.x_dimension_var.get())
-            y = int(self.y_dimension_var.get())
-            z = int(self.z_dimension_var.get())
-            tool_count = int(self.tool_count_var.get())
-            
-            # Store these values in config (they'll be accessed in the responses.py)
-            self.emulator.config['x_dimension'] = x
-            self.emulator.config['y_dimension'] = y
-            self.emulator.config['z_dimension'] = z
-            self.emulator.config['tool_count'] = tool_count
-            
-            # Update other fields (already tracked via trace)
+            # Update basic info fields
             self.emulator.config['printer_name'] = self.printer_name_var.get()
             self.emulator.config['machine_type'] = self.machine_type_var.get()
             self.emulator.config['serial_number'] = self.serial_number_var.get()
             self.emulator.config['firmware_version'] = self.firmware_version_var.get()
-            
+
+            # Update dimensions and tool count
+            x = int(self.x_dimension_var.get())
+            y = int(self.y_dimension_var.get())
+            z = int(self.z_dimension_var.get())
+            tool_count = int(self.tool_count_var.get())
+
+            self.emulator.config['x_dimension'] = x
+            self.emulator.config['y_dimension'] = y
+            self.emulator.config['z_dimension'] = z
+            self.emulator.config['tool_count'] = tool_count
+
+            # Auto-save configuration
+            self.emulator.save_config_to_json()
+
             if self.on_update_callback:
-                self.on_update_callback("Printer details updated")
-            
+                self.on_update_callback("Printer details updated and saved")
+
             # Restart the server if running to apply changes
             if self.emulator.server.is_running:
                 self.schedule_server_restart()
-                
+
         except ValueError:
             # Handle invalid input
             if self.on_update_callback:

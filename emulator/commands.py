@@ -93,7 +93,7 @@ def process_command(command, config, thumbnail_path, virtual_files, logger=None)
     
     if command == "~M26":  # Stop print
         if config['print_status'] in ['printing', 'paused']:
-            config['print_status'] = 'idle'
+            config['print_status'] = 'ready'
             config['print_progress'] = 0
             if logger:
                 logger("Print stopped")

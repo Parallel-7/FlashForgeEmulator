@@ -1,7 +1,10 @@
 import random
 import time
 import os
+import json
 from .server import EmulatorServer
+from .file_manager import EnhancedFileManager
+from .printer_modes import MaterialStationEmulator
 import config
 from utils.network import get_network_interfaces, get_primary_ip
 
@@ -19,11 +22,10 @@ class PrinterEmulator:
         self.network_interfaces = get_network_interfaces()
         primary_ip = get_primary_ip(self.network_interfaces)
         
-        # Initialize virtual files
+        # Initialize virtual files and enhanced file manager
         self.virtual_files = config.DEFAULT_VIRTUAL_FILES.copy()
-        
-        # Thumbnail path
         self.thumbnail_path = None
+        self.file_manager = EnhancedFileManager(self.virtual_files, self.thumbnail_path)
         
         # Printer configuration
         self.config = {
@@ -32,13 +34,14 @@ class PrinterEmulator:
             "machine_type": config.DEFAULT_MACHINE_TYPE,
             "firmware_version": config.DEFAULT_FIRMWARE_VERSION,
             "ip_address": primary_ip,
+            "mac_address": "AA:BB:CC:DD:EE:FF",  # HTTP API requires MAC address
             "led_state": False,
             "hotend_temp": self.idle_hotend_temp,
             "bed_temp": self.idle_bed_temp,
             "target_hotend": 0.0,
             "target_bed": 0.0,
             "position": {"x": 0.0, "y": 0.0, "z": 0.0},
-            "print_status": "idle",  # idle, printing, paused, completed, failed
+            "print_status": "ready",  # ready, busy, printing, paused, completed, cancelled, error
             "print_progress": 0,     # 0-100
             "filament_runout_sensor": True,
             "current_file": "sample_model.3mf",  # Currently printing file name
@@ -46,11 +49,43 @@ class PrinterEmulator:
             "y_dimension": 200,
             "z_dimension": 200,
             "tool_count": 1,      # Number of print heads
-            "discovery_enabled": True  # Enable/disable the discovery service
+            "discovery_enabled": True,  # Enable/disable the discovery service
+            "printer_mode": config.HTTP_CONFIG['printer_mode'],  # HTTP API printer mode
+            "check_code": config.HTTP_CONFIG['check_code'],      # HTTP API check code
+            # HTTP API specific config
+            "led_on": False,
+            "cooling_fan_speed": 0,
+            "chamber_fan_speed": 0,
+            "chamber_temp": 25.0,
+            "target_chamber": 0.0,
+            "print_duration": 0,
+            "remaining_time": 0,
+            "estimated_print_time": 3600,  # Total estimated time for current print (seconds)
+            "current_layer": 0,
+            "total_layers": 0,
+            "camera_on": False,
+            "internal_fan_on": False,
+            "external_fan_on": False,
+            "print_speed_adjust": 100,
+            "z_axis_compensation": 0.0,
+            # Cumulative statistics
+            "cumulative_print_time": config.DEFAULT_CUMULATIVE_PRINT_TIME,  # Total lifetime print time (minutes)
+            "cumulative_filament": config.DEFAULT_CUMULATIVE_FILAMENT,   # Total lifetime filament used (meters)
+            # Per-print filament estimates
+            "estimated_right_len": 0.0,  # Meters of filament for this print (right extruder)
+            "estimated_right_weight": 0.0,  # Grams of filament for this print (right extruder)
+            "estimated_left_len": 0.0,  # Meters of filament for this print (left extruder)
+            "estimated_left_weight": 0.0   # Grams of filament for this print (left extruder)
         }
-        
-        # Initialize server
+
+        # Initialize Material Station for AD5X mode
+        self.material_station = None
+        if self.config['printer_mode'] == config.PrinterMode.AD5X:
+            self.material_station = MaterialStationEmulator(config.HTTP_CONFIG['material_station']['default_slots'])
+
+        # Initialize servers
         self.server = EmulatorServer(self.config, self.virtual_files, self.thumbnail_path, self.log)
+        self.http_server = None  # Will be created when start_http_server() is called
     
     @property
     def log(self):
@@ -62,7 +97,108 @@ class PrinterEmulator:
         # When the logger changes, update the server's logger too
         if hasattr(self, 'server'):
             self.server.log = logger
-    
+
+    def save_config_to_json(self, filepath=None):
+        """Save current configuration to JSON file"""
+        if filepath is None:
+            filepath = config.CONFIG_FILE
+
+        try:
+            config_data = {
+                "printer_name": self.config["printer_name"],
+                "serial_number": self.config["serial_number"],
+                "machine_type": self.config["machine_type"],
+                "firmware_version": self.config["firmware_version"],
+                "ip_address": self.config["ip_address"],
+                "discovery_enabled": self.config["discovery_enabled"],
+                "printer_mode": self.config["printer_mode"],
+                "check_code": self.config["check_code"],
+                "idle_hotend_temp": self.idle_hotend_temp,
+                "idle_bed_temp": self.idle_bed_temp,
+                "virtual_files": self.virtual_files,
+                "thumbnail_path": self.thumbnail_path,
+                "cumulative_print_time": self.config["cumulative_print_time"],
+                "cumulative_filament": self.config["cumulative_filament"]
+            }
+
+            with open(filepath, 'w') as f:
+                json.dump(config_data, f, indent=2)
+
+            self.log(f"Configuration saved to {filepath}")
+            return True
+        except Exception as e:
+            self.log(f"Error saving configuration: {e}")
+            return False
+
+    def load_config_from_json(self, filepath=None):
+        """Load configuration from JSON file"""
+        if filepath is None:
+            filepath = config.CONFIG_FILE
+
+        if not os.path.exists(filepath):
+            self.log(f"No saved configuration found at {filepath}, using defaults")
+            return False
+
+        try:
+            with open(filepath, 'r') as f:
+                config_data = json.load(f)
+
+            # Update printer config
+            if "printer_name" in config_data:
+                self.config["printer_name"] = config_data["printer_name"]
+            if "serial_number" in config_data:
+                self.config["serial_number"] = config_data["serial_number"]
+            if "machine_type" in config_data:
+                self.config["machine_type"] = config_data["machine_type"]
+            if "firmware_version" in config_data:
+                self.config["firmware_version"] = config_data["firmware_version"]
+            if "ip_address" in config_data:
+                self.config["ip_address"] = config_data["ip_address"]
+            if "discovery_enabled" in config_data:
+                self.config["discovery_enabled"] = config_data["discovery_enabled"]
+            if "printer_mode" in config_data:
+                self.config["printer_mode"] = config_data["printer_mode"]
+            if "check_code" in config_data:
+                self.config["check_code"] = config_data["check_code"]
+
+            # Update idle temperatures
+            if "idle_hotend_temp" in config_data:
+                self.idle_hotend_temp = config_data["idle_hotend_temp"]
+                self.config["hotend_temp"] = self.idle_hotend_temp
+            if "idle_bed_temp" in config_data:
+                self.idle_bed_temp = config_data["idle_bed_temp"]
+                self.config["bed_temp"] = self.idle_bed_temp
+
+            # Update virtual files
+            if "virtual_files" in config_data:
+                self.virtual_files = config_data["virtual_files"]
+                self.file_manager.virtual_files = self.virtual_files
+
+            # Update thumbnail path
+            if "thumbnail_path" in config_data and config_data["thumbnail_path"]:
+                self.thumbnail_path = config_data["thumbnail_path"]
+                if hasattr(self, 'server'):
+                    self.server.thumbnail_path = self.thumbnail_path
+
+            # Update cumulative statistics
+            if "cumulative_print_time" in config_data:
+                self.config["cumulative_print_time"] = config_data["cumulative_print_time"]
+            if "cumulative_filament" in config_data:
+                self.config["cumulative_filament"] = config_data["cumulative_filament"]
+
+            # Reinitialize material station if mode changed
+            if self.config['printer_mode'] == config.PrinterMode.AD5X:
+                if not self.material_station:
+                    self.material_station = MaterialStationEmulator(config.HTTP_CONFIG['material_station']['default_slots'])
+            else:
+                self.material_station = None
+
+            self.log(f"Configuration loaded from {filepath}")
+            return True
+        except Exception as e:
+            self.log(f"Error loading configuration: {e}")
+            return False
+
     def update_idle_temps(self, hotend_temp, bed_temp):
         """Update idle temperature settings"""
         try:
@@ -228,35 +364,50 @@ class PrinterEmulator:
         return False
     
     def update_print_status(self, status):
-        """Update print status (idle, printing, paused, completed, failed)"""
-        if status.lower() not in ["idle", "printing", "paused", "completed", "failed"]:
+        """Update print status (ready, busy, printing, paused, completed, cancelled, error)"""
+        valid_statuses = ["ready", "busy", "calibrating", "error", "heating", "printing", "pausing", "paused", "cancelled", "completed", "unknown"]
+        if status.lower() not in valid_statuses:
             self.log(f"Invalid print status: {status}")
             return False
-            
+
         old_status = self.config['print_status']
         self.config['print_status'] = status.lower()
-        
-        # Reset progress if switching to idle
-        if status.lower() == "idle" and old_status != "idle":
+
+        # Reset progress if switching to ready/completed/cancelled
+        if status.lower() in ["ready", "completed", "cancelled"] and old_status not in ["ready", "completed", "cancelled"]:
             self.config['print_progress'] = 0
-            
+
         self.log(f"Print status updated from {old_status} to {status.lower()}")
         return True
     
     def start_server(self):
-        """Start the emulator server"""
+        """Start the emulator server (TCP + HTTP)"""
         if self.server.is_running:
             self.log("Server is already running")
             return False
-            
-        return self.server.start()
+
+        # Start TCP server
+        tcp_started = self.server.start()
+
+        # Auto-start HTTP server for 5M family printers
+        if tcp_started and config.HTTP_CONFIG.get('enabled', True):
+            http_started = self.start_http_server()
+            if not http_started:
+                self.log("Warning: TCP server started but HTTP server failed to start")
+
+        return tcp_started
     
     def stop_server(self):
-        """Stop the emulator server"""
+        """Stop the emulator server (TCP + HTTP)"""
         if not self.server.is_running:
             self.log("Server is not running")
             return False
-            
+
+        # Stop HTTP server first
+        if self.http_server and self.http_server.is_running:
+            self.stop_http_server()
+
+        # Then stop TCP server
         return self.server.stop()
     
     def restart_server(self):
@@ -264,3 +415,145 @@ class PrinterEmulator:
         self.stop_server()
         time.sleep(0.5)  # Small delay to ensure ports are freed
         return self.start_server()
+
+    def start_http_server(self, port=None, http_logger=None):
+        """Start the HTTP API server (async, instant startup)"""
+        if self.http_server and self.http_server.is_running:
+            self.log("HTTP server is already running")
+            return True
+
+        try:
+            # Use fast async HTTP server
+            from .http_server_async import FlashForgeHTTPServerAsync
+            # Pass http_logger if provided, otherwise use main logger
+            logger = http_logger if http_logger else self.log
+            self.http_server = FlashForgeHTTPServerAsync(self, self.file_manager, logger, http_logger)
+
+            success = self.http_server.start(port)
+            if not success:
+                self.log("Failed to start HTTP API server")
+            return success
+        except Exception as e:
+            self.log(f"Error starting HTTP server: {e}")
+            return False
+
+    def stop_http_server(self):
+        """Stop the HTTP API server"""
+        if not self.http_server or not self.http_server.is_running:
+            self.log("HTTP server is not running")
+            return True
+
+        try:
+            success = self.http_server.stop()
+            if success:
+                self.log("HTTP API server stopped")
+                self.http_server = None
+            else:
+                self.log("Failed to stop HTTP API server")
+            return success
+        except Exception as e:
+            self.log(f"Error stopping HTTP server: {e}")
+            return False
+
+    def start_print(self, filename):
+        """Start printing a file (emulation)"""
+        if not self.file_manager.file_exists(filename):
+            self.log(f"Cannot start print: file '{filename}' not found")
+            return False
+
+        # Update print status
+        self.config['current_file'] = filename
+        self.config['print_status'] = 'printing'
+        self.config['print_progress'] = 0.0
+        self.config['current_layer'] = 0
+        self.config['print_duration'] = 0
+
+        # Get file metadata for print simulation
+        metadata = self.file_manager.get_file_metadata(filename)
+        if metadata:
+            self.config['total_layers'] = metadata.get('totalLayers', 100)
+            self.config['remaining_time'] = metadata.get('printingTime', 3600)
+
+        self.log(f"Started printing: {filename}")
+        return True
+
+    def pause_print(self):
+        """Pause current print"""
+        if self.config.get('print_status') == 'printing':
+            self.config['print_status'] = 'paused'
+            self.log("Print paused")
+            return True
+        return False
+
+    def resume_print(self):
+        """Resume paused print"""
+        if self.config.get('print_status') == 'paused':
+            self.config['print_status'] = 'printing'
+            self.log("Print resumed")
+            return True
+        return False
+
+    def cancel_print(self):
+        """Cancel current print"""
+        if self.config.get('print_status') in ['printing', 'paused']:
+            self.config['print_status'] = 'ready'
+            self.config['print_progress'] = 0.0
+            self.config['current_file'] = ''
+            self.config['current_layer'] = 0
+            self.config['print_duration'] = 0
+            self.config['remaining_time'] = 0
+            self.log("Print cancelled")
+            return True
+        return False
+
+    def simulate_print_progress(self):
+        """Simulate print progress during active printing"""
+        if self.config.get('print_status') != 'printing':
+            return
+
+        # Simulate progress increment (very slow for realism)
+        progress_increment = random.uniform(0.01, 0.05)  # 0.01% to 0.05% per call
+        new_progress = min(100.0, self.config['print_progress'] + progress_increment)
+        self.config['print_progress'] = new_progress
+
+        # Update layer count proportionally
+        total_layers = self.config.get('total_layers', 100)
+        new_layer = int((new_progress / 100.0) * total_layers)
+        self.config['current_layer'] = new_layer
+
+        # Update print duration
+        self.config['print_duration'] += 1  # 1 second per simulation tick
+
+        # Update remaining time (simple linear estimation)
+        if new_progress > 0:
+            estimated_total_time = (self.config['print_duration'] * 100) / new_progress
+            self.config['remaining_time'] = max(0, estimated_total_time - self.config['print_duration'])
+
+        # Complete print when reaching 100%
+        if new_progress >= 100.0:
+            self.config['print_status'] = 'completed'
+            self.config['remaining_time'] = 0
+            self.log(f"Print completed: {self.config.get('current_file', 'unknown')}")
+
+    def update_printer_mode(self, mode):
+        """Update printer mode and reinitialize components if needed"""
+        if mode not in [config.PrinterMode.STANDARD_5M, config.PrinterMode.PRO_5M, config.PrinterMode.AD5X]:
+            return False
+
+        old_mode = self.config.get('printer_mode')
+        self.config['printer_mode'] = mode
+
+        # Update material station based on mode
+        if mode == config.PrinterMode.AD5X:
+            if not self.material_station:
+                self.material_station = MaterialStationEmulator(config.HTTP_CONFIG['material_station']['default_slots'])
+        else:
+            self.material_station = None
+
+        # Update printer name based on mode
+        from .printer_modes import get_printer_name_for_mode
+        base_name = "FlashForge Adventurer"
+        self.config['printer_name'] = get_printer_name_for_mode(mode, base_name)
+
+        self.log(f"Printer mode changed from {old_mode} to {mode}")
+        return True

@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__code-context-provider-mcp__get_code_context",
+      "Bash(python test_detail_response.py:*)",
+      "Bash(python:*)",
+      "Bash(test:*)"
+    ],
+    "deny": []
+  }
+}

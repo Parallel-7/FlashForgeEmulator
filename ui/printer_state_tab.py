@@ -95,7 +95,7 @@ class PrinterStateTab:
         ttk.Label(status_grid, text="Print Status:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
         self.print_status_var = tk.StringVar(value=self.emulator.config["print_status"].capitalize())
         status_combo = ttk.Combobox(status_grid, textvariable=self.print_status_var, width=15)
-        status_combo['values'] = ('Idle', 'Printing', 'Paused', 'Completed', 'Failed')
+        status_combo['values'] = ('Ready', 'Busy', 'Calibrating', 'Error', 'Heating', 'Printing', 'Pausing', 'Paused', 'Cancelled', 'Completed', 'Unknown')
         status_combo.grid(row=1, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
         status_combo.bind('<<ComboboxSelected>>', lambda e: self.update_config_from_ui())
         
@@ -103,18 +103,34 @@ class PrinterStateTab:
         ttk.Label(status_grid, text="Print Progress:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
         progress_frame = ttk.Frame(status_grid)
         progress_frame.grid(row=2, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
-        
+
         self.progress_var = tk.IntVar(value=self.emulator.config["print_progress"])
         progress_scale = ttk.Scale(progress_frame, from_=0, to=100, variable=self.progress_var, orient=tk.HORIZONTAL)
         progress_scale.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
         progress_scale.bind("<ButtonRelease-1>", lambda e: self.update_config_from_ui())
         self.progress_label = ttk.Label(progress_frame, text=f"{self.emulator.config['print_progress']}%", width=4)
         self.progress_label.pack(side=tk.LEFT)
-        
-        # Row 3: Thumbnail
-        ttk.Label(status_grid, text="Thumbnail File:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
+
+        # Row 3: Estimated Filament Length
+        ttk.Label(status_grid, text="Est. Filament (m):").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
+        self.filament_length_var = tk.DoubleVar(value=self.emulator.config.get("estimated_right_len", 0.0))
+        self.filament_length_entry = ttk.Entry(status_grid, textvariable=self.filament_length_var, width=15)
+        self.filament_length_entry.grid(row=3, column=1, sticky=tk.W, padx=5, pady=5)
+        self.filament_length_entry.bind("<Return>", lambda e: self.update_config_from_ui())
+        self.filament_length_entry.bind("<FocusOut>", lambda e: self.update_config_from_ui())
+
+        # Row 4: Estimated Filament Weight
+        ttk.Label(status_grid, text="Est. Filament (g):").grid(row=4, column=0, sticky=tk.W, padx=5, pady=5)
+        self.filament_weight_var = tk.DoubleVar(value=self.emulator.config.get("estimated_right_weight", 0.0))
+        self.filament_weight_entry = ttk.Entry(status_grid, textvariable=self.filament_weight_var, width=15)
+        self.filament_weight_entry.grid(row=4, column=1, sticky=tk.W, padx=5, pady=5)
+        self.filament_weight_entry.bind("<Return>", lambda e: self.update_config_from_ui())
+        self.filament_weight_entry.bind("<FocusOut>", lambda e: self.update_config_from_ui())
+
+        # Row 5: Thumbnail
+        ttk.Label(status_grid, text="Thumbnail File:").grid(row=5, column=0, sticky=tk.W, padx=5, pady=5)
         thumbnail_frame = ttk.Frame(status_grid)
-        thumbnail_frame.grid(row=3, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
+        thumbnail_frame.grid(row=5, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
         
         self.thumbnail_path_var = tk.StringVar(value=os.path.basename(self.emulator.thumbnail_path) if self.emulator.thumbnail_path else "No file selected")
         ttk.Label(thumbnail_frame, textvariable=self.thumbnail_path_var).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
@@ -157,17 +173,69 @@ class PrinterStateTab:
         # Update temperature display
         self.hotend_temp_var.set(f"{self.emulator.config['hotend_temp']:.1f}°C / {self.emulator.config['target_hotend']:.1f}°C")
         self.bed_temp_var.set(f"{self.emulator.config['bed_temp']:.1f}°C / {self.emulator.config['target_bed']:.1f}°C")
-        
+
         # Update print progress display
         self.progress_var.set(self.emulator.config['print_progress'])
         self.progress_label.config(text=f"{self.emulator.config['print_progress']}%")
-        
+
         # Update print status
         self.print_status_var.set(self.emulator.config['print_status'].capitalize())
-        
+
         # Update current file
         self.current_file_var.set(self.emulator.config['current_file'])
-        
+
+        # Update filament estimates ONLY if the user is not actively editing them
+        # This prevents the feedback loop where updating the DoubleVar corrupts user input
+        config_len = self.emulator.config.get('estimated_right_len', 0.0)
+        config_weight = self.emulator.config.get('estimated_right_weight', 0.0)
+
+        # DEBUG: Log what we're reading from config every 10 seconds to avoid spam
+        import time
+        if not hasattr(self, '_last_debug_time'):
+            self._last_debug_time = 0
+        if time.time() - self._last_debug_time > 10:
+            if self.on_update_callback:
+                self.on_update_callback(f"[DEBUG] Config->UI: Reading length={config_len}m, weight={config_weight}g")
+            self._last_debug_time = time.time()
+
+        # Only update the Entry widgets if they don't have focus (user isn't editing them)
+        try:
+            focused_widget = self.parent.focus_get()
+
+            # Update length only if user isn't editing it
+            if focused_widget != self.filament_length_entry:
+                # Only update if value has actually changed (avoids unnecessary updates)
+                current_val = self.filament_length_var.get()
+                if abs(current_val - config_len) > 0.001:  # Small tolerance for float comparison
+                    if time.time() - self._last_debug_time > 10:
+                        if self.on_update_callback:
+                            self.on_update_callback(f"[DEBUG] Updating length UI: {current_val} -> {config_len}")
+                    self.filament_length_var.set(config_len)
+            else:
+                if time.time() - self._last_debug_time > 10:
+                    if self.on_update_callback:
+                        self.on_update_callback(f"[DEBUG] Skipping length update - user is editing")
+
+            # Update weight only if user isn't editing it
+            if focused_widget != self.filament_weight_entry:
+                # Only update if value has actually changed
+                current_val = self.filament_weight_var.get()
+                if abs(current_val - config_weight) > 0.001:  # Small tolerance for float comparison
+                    if time.time() - self._last_debug_time > 10:
+                        if self.on_update_callback:
+                            self.on_update_callback(f"[DEBUG] Updating weight UI: {current_val} -> {config_weight}")
+                    self.filament_weight_var.set(config_weight)
+            else:
+                if time.time() - self._last_debug_time > 10:
+                    if self.on_update_callback:
+                        self.on_update_callback(f"[DEBUG] Skipping weight update - user is editing")
+        except Exception as e:
+            # Fallback: if we can't check focus, just update the values
+            if self.on_update_callback:
+                self.on_update_callback(f"[DEBUG] Focus check failed: {e}, updating values anyway")
+            self.filament_length_var.set(config_len)
+            self.filament_weight_var.set(config_weight)
+
         # Update LED and filament sensor
         self.led_var.set(self.emulator.config['led_state'])
         self.filament_sensor_var.set(self.emulator.config['filament_runout_sensor'])
@@ -179,10 +247,32 @@ class PrinterStateTab:
         self.emulator.config['led_state'] = self.led_var.get()
         self.emulator.config['filament_runout_sensor'] = self.filament_sensor_var.get()
         self.emulator.config['current_file'] = self.current_file_var.get()
-        
+
+        # Update filament estimates (apply to both left and right)
+        try:
+            filament_length = float(self.filament_length_var.get())
+            filament_weight = float(self.filament_weight_var.get())
+
+            # DEBUG LOGGING
+            if self.on_update_callback:
+                self.on_update_callback(f"[DEBUG] UI->Config: Setting length={filament_length}m, weight={filament_weight}g")
+
+            self.emulator.config['estimated_right_len'] = filament_length
+            self.emulator.config['estimated_left_len'] = filament_length
+            self.emulator.config['estimated_right_weight'] = filament_weight
+            self.emulator.config['estimated_left_weight'] = filament_weight
+
+            # DEBUG: Verify what was stored
+            if self.on_update_callback:
+                stored_len = self.emulator.config.get('estimated_right_len')
+                stored_weight = self.emulator.config.get('estimated_right_weight')
+                self.on_update_callback(f"[DEBUG] Config stored: length={stored_len}m, weight={stored_weight}g")
+        except ValueError:
+            pass  # Ignore invalid input
+
         # Update progress label
         self.progress_label.config(text=f"{self.emulator.config['print_progress']}%")
-        
+
         # Call the update callback if provided
         if self.on_update_callback:
             self.on_update_callback("Printer state updated from UI")
